@@ -13,15 +13,45 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.os.Bundle;
+import android.os.IBinder;
+import android.os.RemoteException;
+import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.TextView;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import java.util.ArrayList;
+
 public class MusicPlayerActivity extends AppCompatActivity {
 
-    TextView titleTv,currentTimeTv,totalTimeTv;
+    TextView titleTv, currentTimeTv, totalTimeTv;
     SeekBar seekBar;
-    ImageView pausePlay,nextBtn,previousBtn,musicIcon;
+    ImageView pausePlay, nextBtn, previousBtn, musicIcon;
     ArrayList<AudioModel> songsList;
     AudioModel currentSong;
-    MediaPlayer mediaPlayer = MyMediaPlayer.getInstance();
-    int x=0;
+    AudioService audioService;
+    boolean isBound = false;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            AudioService.AudioServiceBinder binder = (AudioService.AudioServiceBinder) service;
+            audioService = binder.getService();
+            isBound = true;
+            initializeUI();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            isBound = false;
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,117 +67,65 @@ public class MusicPlayerActivity extends AppCompatActivity {
         previousBtn = findViewById(R.id.previous);
         musicIcon = findViewById(R.id.music_icon_big);
 
-        titleTv.setSelected(true);
-
-        songsList = (ArrayList<AudioModel>) getIntent().getSerializableExtra("LIST");
-
-        setResourcesWithMusic();
-
-        MusicPlayerActivity.this.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if(mediaPlayer!=null){
-                    seekBar.setProgress(mediaPlayer.getCurrentPosition());
-                    currentTimeTv.setText(convertToMMSS(mediaPlayer.getCurrentPosition()+""));
-
-                    if(mediaPlayer.isPlaying()){
-                        pausePlay.setImageResource(R.drawable.ic_baseline_pause_circle_outline_24);
-                        musicIcon.setRotation(x++);
-                    }else{
-                        pausePlay.setImageResource(R.drawable.ic_baseline_play_circle_outline_24);
-                        musicIcon.setRotation(0);
-                    }
-
-                }
-                new Handler().postDelayed(this,100);
-            }
-        });
-
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if(mediaPlayer!=null && fromUser){
-                    mediaPlayer.seekTo(progress);
-                }
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-
-            }
-        });
-
-
+        Intent intent = new Intent(this, AudioService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
     }
 
-    void setResourcesWithMusic(){
-        currentSong = songsList.get(MyMediaPlayer.currentIndex);
-
-        titleTv.setText(currentSong.getTitle());
-
-        totalTimeTv.setText(convertToMMSS(currentSong.getDuration()));
-
-        pausePlay.setOnClickListener(v-> pausePlay());
-        nextBtn.setOnClickListener(v-> playNextSong());
-        previousBtn.setOnClickListener(v-> playPreviousSong());
-
-        playMusic();
-
-
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unbindService(serviceConnection);
     }
 
+    private void initializeUI() {
+        if (isBound) {
+            songsList = audioService.fetchAudioFromMediaStore();
+            audioService.playMusic(songsList, MyMediaPlayer.currentIndex);
+            updateTitle();
+            pausePlay.setOnClickListener(v -> pausePlay());
+            nextBtn.setOnClickListener(v -> playNextSong());
+            previousBtn.setOnClickListener(v -> playPreviousSong());
 
-    private void playMusic(){
-
-        mediaPlayer.reset();
-        try {
-            mediaPlayer.setDataSource(currentSong.getPath());
-            mediaPlayer.prepare();
-            mediaPlayer.start();
-            seekBar.setProgress(0);
-            seekBar.setMax(mediaPlayer.getDuration());
-        } catch (IOException e) {
-            e.printStackTrace();
         }
-
-
+    }
+    private void pausePlay() {
+        if (isBound) {
+            audioService.pausePlay();
+            updatePlayPauseButton();
+        }
+    }
+    private void updatePlayPauseButton() {
+        if (isBound) {
+            if (audioService.isPlaying()) {
+                pausePlay.setImageResource(R.drawable.ic_baseline_pause_circle_outline_24);
+            } else {
+                pausePlay.setImageResource(R.drawable.ic_baseline_play_circle_outline_24);
+            }
+        }
     }
 
-    private void playNextSong(){
-
-        if(MyMediaPlayer.currentIndex== songsList.size()-1)
-            return;
-        MyMediaPlayer.currentIndex +=1;
-        mediaPlayer.reset();
-        setResourcesWithMusic();
-
+    // Method to play the next song
+    private void playNextSong() {
+        if (isBound) {
+            audioService.playNextSong();
+            updateTitle();
+            updatePlayPauseButton();// Update the title after playing the next song
+        }
+    }
+    // Method to play the previous song
+    private void playPreviousSong() {
+        if (isBound) {
+            audioService.playPreviousSong();
+            updateTitle();
+            updatePlayPauseButton();
+        }
+    }
+    private void updateTitle() {
+        if (isBound) {
+            String currentSongTitle = audioService.getCurrentSongTitle();
+            titleTv.setText(currentSongTitle);
+        }
     }
 
-    private void playPreviousSong(){
-        if(MyMediaPlayer.currentIndex== 0)
-            return;
-        MyMediaPlayer.currentIndex -=1;
-        mediaPlayer.reset();
-        setResourcesWithMusic();
-    }
 
-    private void pausePlay(){
-        if(mediaPlayer.isPlaying())
-            mediaPlayer.pause();
-        else
-            mediaPlayer.start();
-    }
-
-
-    public static String convertToMMSS(String duration){
-        Long millis = Long.parseLong(duration);
-        return String.format("%02d:%02d",
-                TimeUnit.MILLISECONDS.toMinutes(millis) % TimeUnit.HOURS.toMinutes(1),
-                TimeUnit.MILLISECONDS.toSeconds(millis) % TimeUnit.MINUTES.toSeconds(1));
-    }
 }
