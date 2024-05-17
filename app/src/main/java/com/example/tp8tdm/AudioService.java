@@ -11,6 +11,7 @@ import android.media.MediaPlayer;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -23,7 +24,6 @@ import android.provider.MediaStore;
 import androidx.core.app.NotificationCompat;
 
 import java.io.File;
-
 public class AudioService extends Service {
     private static final String ACTION_STOP = "ACTION_STOP";
     private static final String ACTION_PREVIOUS = "ACTION_PREVIOUS";
@@ -36,6 +36,8 @@ public class AudioService extends Service {
     AudioModel currentSong;
     MediaPlayer mediaPlayer = MyMediaPlayer.getInstance();
 
+    private MusicPlayerActivity musicPlayerActivity;
+
     public class AudioServiceBinder extends Binder {
         AudioService getService() {
             return AudioService.this;
@@ -47,8 +49,8 @@ public class AudioService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return binder;
-
     }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -64,18 +66,27 @@ public class AudioService extends Service {
             notificationManager.createNotificationChannel(channel);
         }
     }
-    private void showNotification() {
-        // Create intents for notification actions
-        PendingIntent stopPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, AudioService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent previousPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, AudioService.class).setAction(ACTION_PREVIOUS), PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent playPausePendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, AudioService.class).setAction(ACTION_PLAY_PAUSE), PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent nextPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, AudioService.class).setAction(ACTION_NEXT), PendingIntent.FLAG_IMMUTABLE);
 
-        // Build the notification
+    private void showNotification() {
+
+        Intent nextIntent = new Intent(this, AudioService.class);
+        nextIntent.setAction(ACTION_NEXT);
+        PendingIntent nextPendingIntent = PendingIntent.getService(this, 0, nextIntent, PendingIntent.FLAG_IMMUTABLE);
+
+        Intent playPauseIntent = new Intent(this, AudioService.class);
+        playPauseIntent.setAction(ACTION_PLAY_PAUSE);
+        PendingIntent playPausePendingIntent = PendingIntent.getService(this, 0, playPauseIntent, PendingIntent.FLAG_IMMUTABLE);
+
+        Intent previousIntent = new Intent(this, AudioService.class);
+        previousIntent.setAction(ACTION_PREVIOUS);
+        PendingIntent previousPendingIntent = PendingIntent.getService(this, 0, previousIntent, PendingIntent.FLAG_IMMUTABLE);
+
+
+
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.music_icon)
                 .setContentTitle(currentSong.getTitle())
-                .addAction(R.drawable.ic_baseline_pause_circle_outline_24, "Stop", stopPendingIntent)
                 .addAction(R.drawable.ic_baseline_skip_previous_24, "Previous", previousPendingIntent)
                 .addAction(R.drawable.ic_baseline_play_circle_outline_24, "Play/Pause", playPausePendingIntent)
                 .addAction(R.drawable.ic_baseline_skip_next_24, "Next", nextPendingIntent)
@@ -86,13 +97,10 @@ public class AudioService extends Service {
         startForeground(NOTIFICATION_ID, notification);
     }
 
-
-
     private void handleNotificationAction(String action) {
+        Log.d("AudioService", "Notification action clicked: " + action);
         switch (action) {
-            case ACTION_STOP:
-                stopMusic();
-                break;
+
             case ACTION_PREVIOUS:
                 playPreviousSong();
                 break;
@@ -101,6 +109,9 @@ public class AudioService extends Service {
                     mediaPlayer.pause();
                 } else {
                     mediaPlayer.start();
+                }
+                if (musicPlayerActivity != null) {
+                    musicPlayerActivity.updatePlayPauseButton();
                 }
                 break;
             case ACTION_NEXT:
@@ -114,14 +125,11 @@ public class AudioService extends Service {
         if (intent != null && intent.getAction() != null) {
             String action = intent.getAction();
             handleNotificationAction(action);
-
         }
         return START_NOT_STICKY;
     }
 
-
     public ArrayList<AudioModel> fetchAudioFromMediaStore() {
-        // Fetch audio from media store
         String[] projection = {
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.DATA,
@@ -157,6 +165,7 @@ public class AudioService extends Service {
             return;
         MyMediaPlayer.currentIndex += 1;
         playMusic(songsList, MyMediaPlayer.currentIndex);
+        updateTitle(currentSong.getTitle());
     }
 
     public void playPreviousSong() {
@@ -164,6 +173,7 @@ public class AudioService extends Service {
             return;
         MyMediaPlayer.currentIndex -= 1;
         playMusic(songsList, MyMediaPlayer.currentIndex);
+        updateTitle(currentSong.getTitle());
     }
 
     public void pausePlay() {
@@ -176,11 +186,13 @@ public class AudioService extends Service {
     public void stopMusic() {
         if (mediaPlayer.isPlaying())
             mediaPlayer.stop();
+        mediaPlayer.reset(); // Reset the media player to its uninitialized state
     }
 
     public int getCurrentPosition() {
         return mediaPlayer.getCurrentPosition();
     }
+
     public String getCurrentSongDuration() {
         return currentSong.getDuration();
     }
@@ -192,6 +204,7 @@ public class AudioService extends Service {
     public void seekTo(int position) {
         mediaPlayer.seekTo(position);
     }
+
     public void setResourcesWithMusic(TextView titleTv, TextView totalTimeTv, ImageView pausePlay, ImageView nextBtn, ImageView previousBtn) {
         if (currentSong != null) {
             titleTv.setText(currentSong.getTitle());
@@ -209,13 +222,31 @@ public class AudioService extends Service {
                 (millis / 1000) / 60,
                 (millis / 1000) % 60);
     }
+
     public String getCurrentSongTitle() {
         return currentSong != null ? currentSong.getTitle() : "";
     }
+
     public boolean isPlaying() {
         return mediaPlayer.isPlaying();
     }
 
+    public interface OnStopMusicListener {
+        void onStopMusic();
+    }
+
+    private OnStopMusicListener onStopMusicListener;
+
+    public void setOnStopMusicListener(OnStopMusicListener listener) {
+        this.onStopMusicListener = listener;
+    }
+    public void setMusicPlayerActivity(MusicPlayerActivity activity) {
+        this.musicPlayerActivity = activity;
+    }
+
+    private void updateTitle(String title) {
+        if (musicPlayerActivity != null) {
+            musicPlayerActivity.updateTitle(title);
+        }
+    }
 }
-
-
