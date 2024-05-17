@@ -30,7 +30,11 @@
         </activity>
         <activity android:name=".MusicPlayerActivity" />
 
-        <service android:name=".AudioService" />
+        <!-- Add the service declaration with foregroundServiceType attribute -->
+        <service android:name=".AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ForegroundServicePermission" />
+
     </application>
 
 </manifest>

@@ -1,6 +1,5 @@
 package com.example.tp8tdm;
 
-import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.widget.ImageView;
@@ -9,7 +8,6 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -17,16 +15,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.os.Bundle;
 import android.os.IBinder;
-import android.os.RemoteException;
-import android.widget.ImageView;
-import android.widget.SeekBar;
-import android.widget.TextView;
-
-import androidx.appcompat.app.AppCompatActivity;
-
-import java.util.ArrayList;
 
 public class MusicPlayerActivity extends AppCompatActivity {
 
@@ -87,6 +76,50 @@ public class MusicPlayerActivity extends AppCompatActivity {
             previousBtn.setOnClickListener(v -> playPreviousSong());
 
         }
+        // Set SeekBar max to the duration of the currently playing song
+        seekBar.setMax(audioService.getDuration());
+
+        // Set total time TextView
+        totalTimeTv.setText(convertToMMSS(String.valueOf(audioService.getDuration())));
+
+        // Start updating SeekBar progress
+        updateSeekBar();
+
+        // Set SeekBar listener
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                // Update current time TextView
+                currentTimeTv.setText(convertToMMSS(String.valueOf(progress)));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // Pause playback when the user starts dragging the SeekBar
+                audioService.pausePlay();
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // Seek to the new position when the user stops dragging the SeekBar
+                audioService.seekTo(seekBar.getProgress());
+                // Resume playback
+                audioService.pausePlay();
+            }
+        });
+    }
+    private void updateSeekBar() {
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isBound) {
+                    // Update SeekBar progress
+                    seekBar.setProgress(audioService.getCurrentPosition());
+                }
+                // Repeat updating SeekBar progress every 100 milliseconds
+                updateSeekBar();
+            }
+        }, 100);
     }
     private void pausePlay() {
         if (isBound) {
@@ -110,6 +143,7 @@ public class MusicPlayerActivity extends AppCompatActivity {
             audioService.playNextSong();
             updateTitle();
             updatePlayPauseButton();// Update the title after playing the next song
+            setTotalTime();
         }
     }
     // Method to play the previous song
@@ -118,12 +152,25 @@ public class MusicPlayerActivity extends AppCompatActivity {
             audioService.playPreviousSong();
             updateTitle();
             updatePlayPauseButton();
+            setTotalTime();
+
         }
     }
     private void updateTitle() {
         if (isBound) {
             String currentSongTitle = audioService.getCurrentSongTitle();
             titleTv.setText(currentSongTitle);
+        }
+    }
+    private String convertToMMSS(String duration) {
+        Long millis = Long.parseLong(duration);
+        return String.format("%02d:%02d",
+                (millis / 1000) / 60,
+                (millis / 1000) % 60);
+    }
+    private void setTotalTime() {
+        if (isBound) {
+            totalTimeTv.setText(convertToMMSS(audioService.getCurrentSongDuration()));
         }
     }
 
